@@ -14,7 +14,7 @@ const APP_CONFIG = {
 
   // Must exactly match a Redirect URI (type: Single-page application)
   // configured on the Azure AD app registration.
-  redirectUri: "https://REPLACE_WITH_YOUR_HOSTED_DOMAIN/taskpane.html",
+  redirectUri: "https://corngrowers.github.io/Availability-Picker/taskpane.html",
 
   // Delegated Graph permission needed to read free/busy + events.
   graphScopes: ["Calendars.Read"],
