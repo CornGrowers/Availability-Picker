@@ -5,16 +5,16 @@
 // ---------------------------------------------------------------------------
 const APP_CONFIG = {
   // Azure AD "Application (client) ID" from the app registration.
-  clientId: "REPLACE_WITH_AZURE_AD_APPLICATION_CLIENT_ID",
+  clientId: "a16a7a70-e849-458e-8c26-d99fb14a5c23",
 
   // "organizations" = any work/school Microsoft Entra tenant (no personal
   // accounts). Use the org's own tenant ID here instead once known, to
   // restrict sign-in to just that tenant.
-  authority: "https://login.microsoftonline.com/organizations",
+  authority: "https://login.microsoftonline.com/cedfb7f7-0481-4eda-a915-80c712b7e9e0",
 
   // Must exactly match a Redirect URI (type: Single-page application)
   // configured on the Azure AD app registration.
-  redirectUri: "https://REPLACE_WITH_YOUR_HOSTED_DOMAIN/taskpane.html",
+  redirectUri: "https://corngrowers.github.io/Availability-Picker/taskpane.html",
 
   // Calendars.Read: read free/busy + events (also covers checking colleagues'
   // free/busy via getSchedule). People.Read: search the org directory when
