@@ -7,6 +7,8 @@ const PX_PER_MIN = 1.5;
 const CELL_MINUTES = 30;
 
 let allCells = []; // { start: Date, end: Date, dayLabel, el, selected }
+let attendees = []; // { name, email }
+let attendeeSearchTimer;
 
 Office.onReady(() => {
   msalInstance = new msal.PublicClientApplication({
@@ -21,6 +23,7 @@ Office.onReady(() => {
   document.getElementById("signin-btn").addEventListener("click", signIn);
   document.getElementById("load-btn").addEventListener("click", loadAvailability);
   document.getElementById("insert-btn").addEventListener("click", insertIntoEmail);
+  document.getElementById("attendee-search").addEventListener("input", onAttendeeSearchInput);
 });
 
 function showError(message) {
@@ -57,6 +60,133 @@ async function getGraphToken() {
     const result = await msalInstance.acquireTokenPopup({ scopes: APP_CONFIG.graphScopes });
     return result.accessToken;
   }
+}
+
+function onAttendeeSearchInput(e) {
+  const query = e.target.value.trim();
+  clearTimeout(attendeeSearchTimer);
+
+  const resultsEl = document.getElementById("attendee-results");
+  if (query.length < 2) {
+    resultsEl.classList.add("hidden");
+    resultsEl.innerHTML = "";
+    return;
+  }
+
+  attendeeSearchTimer = setTimeout(async () => {
+    try {
+      const token = await getGraphToken();
+      const people = await searchPeople(token, query);
+      renderAttendeeResults(people);
+    } catch (err) {
+      showError("Couldn't search the directory: " + err.message);
+    }
+  }, 300);
+}
+
+async function searchPeople(token, query) {
+  const url =
+    `${APP_CONFIG.graphBaseUrl}/me/people?$search=${encodeURIComponent(`"${query}"`)}` +
+    `&$top=8&$select=displayName,scoredEmailAddresses`;
+
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Graph error ${resp.status}: ${text}`);
+  }
+
+  const data = await resp.json();
+  return (data.value || [])
+    .map((p) => ({
+      name: p.displayName,
+      email: (p.scoredEmailAddresses || [])[0] && p.scoredEmailAddresses[0].address,
+    }))
+    .filter((p) => p.email);
+}
+
+function renderAttendeeResults(people) {
+  const resultsEl = document.getElementById("attendee-results");
+  resultsEl.innerHTML = "";
+
+  if (people.length === 0) {
+    resultsEl.classList.add("hidden");
+    return;
+  }
+
+  people.forEach((person) => {
+    const itemEl = document.createElement("div");
+    itemEl.className = "attendee-result-item";
+    itemEl.innerHTML = `<span class="name">${person.name}</span><span class="email">${person.email}</span>`;
+    itemEl.addEventListener("click", () => addAttendee(person));
+    resultsEl.appendChild(itemEl);
+  });
+  resultsEl.classList.remove("hidden");
+}
+
+function addAttendee(person) {
+  if (!attendees.some((a) => a.email.toLowerCase() === person.email.toLowerCase())) {
+    attendees.push(person);
+    renderAttendeeChips();
+  }
+  document.getElementById("attendee-search").value = "";
+  document.getElementById("attendee-results").classList.add("hidden");
+  document.getElementById("attendee-results").innerHTML = "";
+}
+
+function removeAttendee(email) {
+  attendees = attendees.filter((a) => a.email !== email);
+  renderAttendeeChips();
+}
+
+function renderAttendeeChips() {
+  const chipsEl = document.getElementById("attendee-chips");
+  chipsEl.innerHTML = "";
+  attendees.forEach((person) => {
+    const chipEl = document.createElement("span");
+    chipEl.className = "attendee-chip";
+    chipEl.innerHTML = `${person.name}<button type="button" aria-label="Remove ${person.name}">×</button>`;
+    chipEl.querySelector("button").addEventListener("click", () => removeAttendee(person.email));
+    chipsEl.appendChild(chipEl);
+  });
+}
+
+// Uses Graph's getSchedule (the same API Outlook's Scheduling Assistant uses)
+// to get each attendee's free/busy in 30-min increments, aligned to our grid.
+// Times are passed as UTC so no Windows-timezone-name mapping is needed.
+async function fetchGroupBlockedIntervals(token, attendeeEmails, rangeStart, rangeEnd) {
+  if (attendeeEmails.length === 0) return new Set();
+
+  const stripZ = (iso) => iso.replace("Z", "");
+  const resp = await fetch(`${APP_CONFIG.graphBaseUrl}/me/calendar/getSchedule`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      schedules: attendeeEmails,
+      startTime: { dateTime: stripZ(rangeStart.toISOString()), timeZone: "UTC" },
+      endTime: { dateTime: stripZ(rangeEnd.toISOString()), timeZone: "UTC" },
+      availabilityViewInterval: CELL_MINUTES,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Graph error ${resp.status}: ${text}`);
+  }
+
+  const data = await resp.json();
+  const blocked = new Set();
+  (data.value || []).forEach((schedule) => {
+    const view = schedule.availabilityView || "";
+    for (let i = 0; i < view.length; i++) {
+      if (view[i] !== "0") {
+        blocked.add(rangeStart.getTime() + i * CELL_MINUTES * 60000);
+      }
+    }
+  });
+  return blocked;
 }
 
 function businessDayRange(lookaheadDays, startHour, endHour) {
@@ -181,7 +311,7 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && aEnd > bStart;
 }
 
-function renderDayTimeline(dayStart, dayEnd, busyEvents) {
+function renderDayTimeline(dayStart, dayEnd, busyEvents, groupBlocked) {
   const dayLabel = formatDayLabel(dayStart);
   const totalMinutes = minutesFrom(dayStart, dayEnd);
   const busyRanges = mergeBusyRanges(busyEvents, dayStart, dayEnd);
@@ -239,8 +369,9 @@ function renderDayTimeline(dayStart, dayEnd, busyEvents) {
     const cellEnd = new Date(Math.min(cellStart.getTime() + CELL_MINUTES * 60000, dayEnd.getTime()));
     const isPast = cellEnd <= pastEnd;
     const isBusy = busyRanges.some((r) => overlaps(cellStart, cellEnd, r.start, r.end));
+    const isGroupBlocked = groupBlocked.has(cellStart.getTime());
 
-    if (!isPast && !isBusy) {
+    if (!isPast && !isBusy && !isGroupBlocked) {
       const cellEl = document.createElement("div");
       cellEl.className = "free-cell";
       cellEl.style.top = `${minutesFrom(dayStart, cellStart) * PX_PER_MIN}px`;
@@ -291,9 +422,17 @@ async function loadAvailability() {
       return;
     }
 
-    const rangeStartISO = days[0].dayStart.toISOString();
-    const rangeEndISO = days[days.length - 1].dayEnd.toISOString();
+    const rangeStart = days[0].dayStart;
+    const rangeEnd = days[days.length - 1].dayEnd;
+    const rangeStartISO = rangeStart.toISOString();
+    const rangeEndISO = rangeEnd.toISOString();
     const busyEvents = await fetchBusyEvents(token, rangeStartISO, rangeEndISO);
+    const groupBlocked = await fetchGroupBlockedIntervals(
+      token,
+      attendees.map((a) => a.email),
+      rangeStart,
+      rangeEnd
+    );
 
     allCells = [];
     const listEl = document.getElementById("slots-list");
@@ -305,11 +444,15 @@ async function loadAvailability() {
         const end = new Date(e.end.dateTime);
         return end > dayStart && start < dayEnd;
       });
-      listEl.appendChild(renderDayTimeline(dayStart, dayEnd, dayEvents));
+      listEl.appendChild(renderDayTimeline(dayStart, dayEnd, dayEvents, groupBlocked));
     });
 
     if (allCells.length === 0) {
-      showError("No open time found in that range with those business hours.");
+      showError(
+        attendees.length > 0
+          ? "No time in that range works for everyone you added — try a longer lookahead or removing someone."
+          : "No open time found in that range with those business hours."
+      );
     }
 
     document.getElementById("slots-section").classList.remove("hidden");
