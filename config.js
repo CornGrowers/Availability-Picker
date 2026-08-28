@@ -5,19 +5,21 @@
 // ---------------------------------------------------------------------------
 const APP_CONFIG = {
   // Azure AD "Application (client) ID" from the app registration.
-  clientId: "d9926fe8-26a3-470d-ac30-96d47c04bd6f",
+  clientId: "REPLACE_WITH_AZURE_AD_APPLICATION_CLIENT_ID",
 
   // "organizations" = any work/school Microsoft Entra tenant (no personal
   // accounts). Use the org's own tenant ID here instead once known, to
   // restrict sign-in to just that tenant.
-  authority: "https://login.microsoftonline.com/cedfb7f7-0481-4eda-a915-80c712b7e9e0",
+  authority: "https://login.microsoftonline.com/organizations",
 
   // Must exactly match a Redirect URI (type: Single-page application)
   // configured on the Azure AD app registration.
-  redirectUri: "https://corngrowers.github.io/Availability-Picker/taskpane.html",
+  redirectUri: "https://REPLACE_WITH_YOUR_HOSTED_DOMAIN/taskpane.html",
 
-  // Delegated Graph permission needed to read free/busy + events.
-  graphScopes: ["Calendars.Read"],
+  // Calendars.Read: read free/busy + events (also covers checking colleagues'
+  // free/busy via getSchedule). People.Read: search the org directory when
+  // adding colleagues.
+  graphScopes: ["Calendars.Read", "People.Read"],
 
   graphBaseUrl: "https://graph.microsoft.com/v1.0",
 };
