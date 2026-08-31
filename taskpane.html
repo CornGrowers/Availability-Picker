@@ -41,14 +41,14 @@
         </select>
       </div>
       <div class="row attendee-row">
-        <label for="attendee-search">Add colleagues</label>
+        <label for="attendee-search">Add colleagues (optional)</label>
         <div class="attendee-search-wrap">
           <input type="text" id="attendee-search" placeholder="Type a name..." autocomplete="off" />
           <div id="attendee-results" class="attendee-results hidden"></div>
         </div>
       </div>
       <div id="attendee-chips" class="attendee-chips"></div>
-      <p class="hint">Only time slots where you and everyone added are free will show up as selectable.</p>
+      <p class="hint">Optional — leave this empty to just use your own calendar. Times where someone you add is busy still show up, just flagged, so you can still pick them if needed.</p>
 
       <button id="load-btn" class="secondary-btn">Show my calendar</button>
     </section>
@@ -57,6 +57,7 @@
       <p class="hint">Click open time on the calendar to select it (30-min increments — click adjacent slots to build a longer block), then insert it into the email.</p>
       <div id="calendar-legend">
         <span><i class="swatch busy"></i> Busy</span>
+        <span><i class="swatch conflict"></i> Colleague busy</span>
         <span><i class="swatch selected"></i> Selected</span>
       </div>
       <div id="slots-list"></div>
@@ -66,7 +67,7 @@
     <p id="error-msg" class="error hidden"></p>
   </main>
 
-  <script src="config.js?v=4"></script>
-  <script src="taskpane.js?v=4"></script>
+  <script src="config.js?v=5"></script>
+  <script src="taskpane.js?v=5"></script>
 </body>
 </html>
