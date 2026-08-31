@@ -139,6 +139,7 @@ h1 { font-size: 16px; margin: 0 0 4px; color: var(--accent); }
   vertical-align: middle;
 }
 #calendar-legend .swatch.busy { background: #d8dcd9; border: 1px solid var(--border); }
+#calendar-legend .swatch.conflict { background: white; border: 1px solid var(--border); border-left: 3px solid var(--accent2); }
 #calendar-legend .swatch.selected { background: var(--accent); }
 
 .day-group { margin-bottom: 20px; }
@@ -223,5 +224,15 @@ h1 { font-size: 16px; margin: 0 0 4px; color: var(--accent); }
   border-color: var(--accent);
   color: white;
 }
+.free-cell.conflict { border-left: 3px solid var(--accent2); }
+.free-cell.conflict::after {
+  content: "●";
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 8px;
+  color: var(--accent2);
+}
+.free-cell.conflict.selected::after { color: white; }
 
 .error { color: #b3261e; font-size: 12px; margin-top: 12px; }

@@ -153,8 +153,14 @@ function renderAttendeeChips() {
 // Uses Graph's getSchedule (the same API Outlook's Scheduling Assistant uses)
 // to get each attendee's free/busy in 30-min increments, aligned to our grid.
 // Times are passed as UTC so no Windows-timezone-name mapping is needed.
-async function fetchGroupBlockedIntervals(token, attendeeEmails, rangeStart, rangeEnd) {
-  if (attendeeEmails.length === 0) return new Set();
+// Returns a Map of interval-start-ms -> array of conflicting attendee names.
+// This is informational only — a colleague being busy no longer removes the
+// slot, since requiring every added colleague to be free can zero out every
+// slot once enough people are added. Your own busy time is handled
+// separately in renderDayTimeline and still hides the slot, since that one
+// is a hard conflict.
+async function fetchGroupConflicts(token, attendees, rangeStart, rangeEnd) {
+  if (attendees.length === 0) return new Map();
 
   const stripZ = (iso) => iso.replace("Z", "");
   const resp = await fetch(`${APP_CONFIG.graphBaseUrl}/me/calendar/getSchedule`, {
@@ -164,7 +170,7 @@ async function fetchGroupBlockedIntervals(token, attendeeEmails, rangeStart, ran
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      schedules: attendeeEmails,
+      schedules: attendees.map((a) => a.email),
       startTime: { dateTime: stripZ(rangeStart.toISOString()), timeZone: "UTC" },
       endTime: { dateTime: stripZ(rangeEnd.toISOString()), timeZone: "UTC" },
       availabilityViewInterval: CELL_MINUTES,
@@ -177,16 +183,20 @@ async function fetchGroupBlockedIntervals(token, attendeeEmails, rangeStart, ran
   }
 
   const data = await resp.json();
-  const blocked = new Set();
+  const conflicts = new Map();
   (data.value || []).forEach((schedule) => {
+    const attendee = attendees.find((a) => a.email.toLowerCase() === (schedule.scheduleId || "").toLowerCase());
+    const name = attendee ? attendee.name : schedule.scheduleId;
     const view = schedule.availabilityView || "";
     for (let i = 0; i < view.length; i++) {
       if (view[i] !== "0") {
-        blocked.add(rangeStart.getTime() + i * CELL_MINUTES * 60000);
+        const t = rangeStart.getTime() + i * CELL_MINUTES * 60000;
+        if (!conflicts.has(t)) conflicts.set(t, []);
+        conflicts.get(t).push(name);
       }
     }
   });
-  return blocked;
+  return conflicts;
 }
 
 function businessDayRange(lookaheadDays, startHour, endHour) {
@@ -212,8 +222,13 @@ function businessDayRange(lookaheadDays, startHour, endHour) {
   return days;
 }
 
+// /me/calendars can include calendars someone else shared with you (e.g. you
+// were added as a delegate, or you added their shared calendar to your own
+// list) — those come back as entries owned by THEM, not you. We only want
+// the signed-in user's own calendars here; other people's availability is
+// handled separately, explicitly, through the "Add colleagues" flow.
 async function fetchCalendarIds(token) {
-  const resp = await fetch(`${APP_CONFIG.graphBaseUrl}/me/calendars?$select=id,name`, {
+  const resp = await fetch(`${APP_CONFIG.graphBaseUrl}/me/calendars?$select=id,name,owner`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -223,7 +238,10 @@ async function fetchCalendarIds(token) {
   }
 
   const data = await resp.json();
-  return (data.value || []).map((c) => c.id);
+  const ownEmail = (graphAccount.username || "").toLowerCase();
+  return (data.value || [])
+    .filter((c) => !c.owner || !c.owner.address || c.owner.address.toLowerCase() === ownEmail)
+    .map((c) => c.id);
 }
 
 async function fetchCalendarViewEvents(token, calendarId, rangeStartISO, rangeEndISO) {
@@ -311,7 +329,7 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && aEnd > bStart;
 }
 
-function renderDayTimeline(dayStart, dayEnd, busyEvents, groupBlocked) {
+function renderDayTimeline(dayStart, dayEnd, busyEvents, groupConflicts) {
   const dayLabel = formatDayLabel(dayStart);
   const totalMinutes = minutesFrom(dayStart, dayEnd);
   const busyRanges = mergeBusyRanges(busyEvents, dayStart, dayEnd);
@@ -369,14 +387,17 @@ function renderDayTimeline(dayStart, dayEnd, busyEvents, groupBlocked) {
     const cellEnd = new Date(Math.min(cellStart.getTime() + CELL_MINUTES * 60000, dayEnd.getTime()));
     const isPast = cellEnd <= pastEnd;
     const isBusy = busyRanges.some((r) => overlaps(cellStart, cellEnd, r.start, r.end));
-    const isGroupBlocked = groupBlocked.has(cellStart.getTime());
+    const conflictNames = groupConflicts.get(cellStart.getTime());
 
-    if (!isPast && !isBusy && !isGroupBlocked) {
+    if (!isPast && !isBusy) {
       const cellEl = document.createElement("div");
-      cellEl.className = "free-cell";
+      cellEl.className = conflictNames ? "free-cell conflict" : "free-cell";
       cellEl.style.top = `${minutesFrom(dayStart, cellStart) * PX_PER_MIN}px`;
       cellEl.style.height = `${minutesFrom(cellStart, cellEnd) * PX_PER_MIN}px`;
       cellEl.textContent = `${formatTime(cellStart)} – ${formatTime(cellEnd)}`;
+      if (conflictNames) {
+        cellEl.title = `Busy for: ${conflictNames.join(", ")}`;
+      }
 
       const cell = {
         start: new Date(cellStart),
@@ -427,12 +448,7 @@ async function loadAvailability() {
     const rangeStartISO = rangeStart.toISOString();
     const rangeEndISO = rangeEnd.toISOString();
     const busyEvents = await fetchBusyEvents(token, rangeStartISO, rangeEndISO);
-    const groupBlocked = await fetchGroupBlockedIntervals(
-      token,
-      attendees.map((a) => a.email),
-      rangeStart,
-      rangeEnd
-    );
+    const groupConflicts = await fetchGroupConflicts(token, attendees, rangeStart, rangeEnd);
 
     allCells = [];
     const listEl = document.getElementById("slots-list");
@@ -444,15 +460,11 @@ async function loadAvailability() {
         const end = new Date(e.end.dateTime);
         return end > dayStart && start < dayEnd;
       });
-      listEl.appendChild(renderDayTimeline(dayStart, dayEnd, dayEvents, groupBlocked));
+      listEl.appendChild(renderDayTimeline(dayStart, dayEnd, dayEvents, groupConflicts));
     });
 
     if (allCells.length === 0) {
-      showError(
-        attendees.length > 0
-          ? "No time in that range works for everyone you added — try a longer lookahead or removing someone."
-          : "No open time found in that range with those business hours."
-      );
+      showError("No open time found in that range with those business hours.");
     }
 
     document.getElementById("slots-section").classList.remove("hidden");
