@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 const APP_CONFIG = {
   // Azure AD "Application (client) ID" from the app registration.
-  clientId: "47ee270a-fabb-4fc8-bce9-0b11f7049013",
+  clientId: "ea6346fd-009c-40f2-bc21-14c31e23614d",
 
   // "organizations" = any work/school Microsoft Entra tenant (no personal
   // accounts). Use the org's own tenant ID here instead once known, to
