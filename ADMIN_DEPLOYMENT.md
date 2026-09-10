@@ -4,7 +4,15 @@ This is a small Outlook add-in: a task pane that reads the signed-in user's
 **own** calendar via Microsoft Graph (`Calendars.Read`, delegated — read-only,
 per-user), shows their open time slots on a mini calendar, and lets them
 insert a list of times into the email they're composing. It never sends
-anything on its own, and it can't see anyone else's calendar.
+anything on its own.
+
+Users can optionally add colleagues (searched from the org directory via
+`People.Read`) to check group availability — this uses Graph's `getSchedule`
+API, the same one behind Outlook's Scheduling Assistant, which only ever
+returns free/busy/tentative/out-of-office *status* for other users, never
+event details or subjects. `Calendars.Read` (already required above) is
+sufficient for this; no extra calendar permission is needed for checking
+colleagues' schedules.
 
 Source code: this folder. Currently hosted at:
 `https://ag-guy-dev.github.io/calendar-availability-picker/`
@@ -12,7 +20,7 @@ Source code: this folder. Currently hosted at:
 ## What needs to happen
 
 1. Register an Azure AD (Entra ID) app in your own tenant and grant admin
-   consent for `Calendars.Read`.
+   consent for `Calendars.Read` and `People.Read`.
 2. Point the add-in's config at that app.
 3. Push the add-in to users via the Microsoft 365 admin center.
 
@@ -37,7 +45,7 @@ live in your directory). To do that:
    (or your own hosted URL, see "Hosting" below).
 6. Register, then copy the **Application (client) ID** from the Overview page.
 7. **API permissions → Add a permission → Microsoft Graph → Delegated
-   permissions →** add `Calendars.Read`.
+   permissions →** add `Calendars.Read` and `People.Read`.
 8. Click **Grant admin consent for [your org]** — this is the step that lets
    every user skip the individual consent prompt.
 
